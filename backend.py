@@ -32,6 +32,7 @@ from mcp_client import (
     forecast_mcp_search,
     weather_mcp_search,
 )
+from verification.verifier import run_deterministic_verifier
 
 
 def get_database_url():
@@ -55,7 +56,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is missing. Please add it to your .env file.")
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # =========================
 # LLM
@@ -93,6 +94,14 @@ class TravelState(TypedDict, total=False):
     human_feedback: str
     final_response: str
 
+    # Deterministic verifier state
+    structured_itinerary: list[dict[str, Any]]
+    verification_report: dict[str, Any]
+    verification_score: float
+    verification_violations: list[str]
+    verification_retry_count: int
+    verification_passed: bool
+
     llm_calls: int
 
 
@@ -105,6 +114,7 @@ KNOWN_AGENTS = {
     "weather_agent",
     "budget_agent",
     "itinerary_agent",
+    "verifier_agent",
 }
 
 AGENT_ORDER = [
@@ -113,17 +123,39 @@ AGENT_ORDER = [
     "weather_agent",
     "budget_agent",
     "itinerary_agent",
+    "verifier_agent",
 ]
 
 
+def _truncate(text: Any, limit: int = 1500) -> str:
+    """Truncate long text fields to avoid exceeding LLM context / token limits."""
+    s = str(text or "")
+    if len(s) <= limit:
+        return s
+    return s[:limit] + "\n...[truncated for token efficiency]..."
+
+
 def _llm_text(system_prompt: str, user_prompt: str) -> str:
-    response = llm.invoke(
-        [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ]
-    )
-    return str(response.content)
+    """Invoke Groq LLM with rate-limit fallback to llama-3.1-8b-instant if 413/TPM limit occurs."""
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+    ]
+    try:
+        response = llm.invoke(messages)
+        return str(response.content)
+    except Exception as exc:
+        err_msg = str(exc)
+        if "413" in err_msg or "rate_limit_exceeded" in err_msg or "TPM" in err_msg or "tokens" in err_msg:
+            print(f"[LLM] Primary model rate limited ({err_msg}). Falling back to llama-3.1-8b-instant...")
+            fallback_llm = ChatGroq(
+                model="llama-3.1-8b-instant",
+                api_key=GROQ_API_KEY,
+                max_tokens=2048,
+            )
+            response = fallback_llm.invoke(messages)
+            return str(response.content)
+        raise exc
 
 
 def _json_from_llm(text: str) -> dict[str, Any]:
@@ -335,17 +367,14 @@ def flight_agent(state: TravelState):
 
         prompt = FLIGHT_AGENT_PROMPT.format(
             query=query,
-            airport_data=str(airports)[:3000],
-            airline_data=str(airlines)[:3000],
+            airport_data=_truncate(airports, 1200),
+            airline_data=_truncate(airlines, 1200),
         )
 
-        response = llm.invoke(
-            [
-                SystemMessage(content="You are an expert travel flight planner."),
-                HumanMessage(content=prompt),
-            ]
+        flight_data = _llm_text(
+            "You are an expert travel flight planner.",
+            prompt,
         )
-        flight_data = response.content
     except Exception as exc:
         flight_data = f"Flight information unavailable: {exc}"
 
@@ -460,13 +489,13 @@ Trip Constraints:
 {state.get('trip_constraints', {})}
 
 Flight Results:
-{state.get('flight_results', '')}
+{_truncate(state.get('flight_results', ''), 1200)}
 
 Hotel Results:
-{state.get('hotel_results', '')}
+{_truncate(state.get('hotel_results', ''), 1200)}
 
 Weather Results:
-{state.get('weather_results', '')}
+{_truncate(state.get('weather_results', ''), 1200)}
 
 Return:
 1. Estimated cost categories
@@ -477,15 +506,13 @@ Return:
 If exact live prices are unavailable, clearly label estimates as approximate.
 """
 
-    response = llm.invoke(
-        [
-            SystemMessage(content="You are a practical travel budget analyst."),
-            HumanMessage(content=prompt),
-        ]
+    budget_data = _llm_text(
+        "You are a practical travel budget analyst.",
+        prompt,
     )
 
     return {
-        "budget_results": response.content,
+        "budget_results": budget_data,
         "messages": [AIMessage(content="Budget assessment generated.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -495,36 +522,69 @@ If exact live prices are unavailable, clearly label estimates as approximate.
 # Itinerary Agent - original behavior extended with selected results
 # =========================
 def itinerary_agent(state: TravelState):
+    query = state["user_query"]
+    violations = state.get("verification_violations", [])
+    retry_count = state.get("verification_retry_count", 0)
+
+    correction_prompt = ""
+    if violations and retry_count > 0:
+        violations_formatted = "\n".join(f"- {v}" for v in violations)
+        correction_prompt = f"""
+CRITICAL VERIFICATION CORRECTIONS REQUIRED (Attempt #{retry_count}):
+Your previous draft itinerary failed deterministic constraint verification with the following errors:
+{violations_formatted}
+
+You MUST fix ALL of these constraint violations in your updated itinerary and JSON.
+"""
+
     prompt = f"""
 Create a complete travel itinerary.
 
 User Query:
-{state['user_query']}
+{query}
 
 Trip Constraints:
 {state.get('trip_constraints', {})}
 
 Flight Results:
-{state.get('flight_results', '')}
+{_truncate(state.get('flight_results', ''), 1200)}
 
 Hotel Results:
-{state.get('hotel_results', '')}
+{_truncate(state.get('hotel_results', ''), 1200)}
 
 Weather Results:
-{state.get('weather_results', '')}
+{_truncate(state.get('weather_results', ''), 1200)}
 
 Budget Results:
-{state.get('budget_results', '')}
+{_truncate(state.get('budget_results', ''), 1200)}
+
+{correction_prompt}
+
+INSTRUCTIONS:
+1. Provide a clear, practical, day-by-day markdown travel plan.
+2. AT THE END of your response, you MUST include a strictly valid JSON block enclosed inside <json_itinerary>...</json_itinerary> containing structured stops with this exact schema:
+<json_itinerary>
+[
+  {{
+    "day": 1,
+    "stop_name": "Name of location or activity",
+    "coordinates": {{"lat": 35.6895, "lng": 139.6917}},
+    "start_time": "09:00",
+    "end_time": "11:00",
+    "cost": 25.0,
+    "opening_hours": {{"open": "08:00", "close": "18:00"}},
+    "stop_type": "activity"
+  }}
+]
+</json_itinerary>
 
 Make the itinerary practical, budget-aware, and easy to follow.
 Create a clear draft that is ready for human review.
 """
 
-    response = llm.invoke(
-        [
-            SystemMessage(content="You are an expert travel planner."),
-            HumanMessage(content=prompt),
-        ]
+    itinerary_content = _llm_text(
+        "You are an expert travel planner that outputs both markdown plans and structured JSON.",
+        prompt,
     )
 
     approval_request = (
@@ -533,11 +593,52 @@ Create a clear draft that is ready for human review.
     )
 
     return {
-        "itinerary": response.content,
+        "itinerary": itinerary_content,
         "approval_request": approval_request,
-        "messages": [AIMessage(content="Draft itinerary created for human review.")],
+        "messages": [AIMessage(content="Draft itinerary created with structured JSON stops.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
+
+
+# =========================
+# Verifier Agent - Deterministic Hard Constraint Checker
+# =========================
+def verifier_agent(state: TravelState):
+    query = state["user_query"]
+    constraints = state.get("trip_constraints", {})
+    itinerary_output = state.get("itinerary", "")
+    retry_count = state.get("verification_retry_count", 0)
+
+    report = run_deterministic_verifier(
+        llm_itinerary_output=itinerary_output,
+        trip_constraints=constraints,
+        user_query=query
+    )
+
+    passed = report.get("passed", False)
+    violations = report.get("violations", [])
+    score = report.get("score", 100.0)
+
+    new_retry_count = retry_count + (1 if not passed else 0)
+
+    return {
+        "verification_report": report,
+        "verification_score": score,
+        "verification_violations": violations,
+        "verification_passed": passed,
+        "verification_retry_count": new_retry_count,
+        "messages": [AIMessage(content=f"Verifier evaluated itinerary. Score: {score}%. Passed: {passed}")],
+    }
+
+
+def route_after_verifier(state: TravelState) -> str:
+    passed = state.get("verification_passed", True)
+    retry_count = state.get("verification_retry_count", 0)
+
+    if not passed and retry_count <= 2:
+        return "itinerary_agent"
+
+    return "human_approval"
 
 
 # =========================
@@ -596,19 +697,19 @@ Supervisor Constraints:
 {state.get('trip_constraints', {})}
 
 Flights:
-{state.get('flight_results', '')}
+{_truncate(state.get('flight_results', ''), 1200)}
 
 Hotels:
-{state.get('hotel_results', '')}
+{_truncate(state.get('hotel_results', ''), 1200)}
 
 Weather:
-{state.get('weather_results', '')}
+{_truncate(state.get('weather_results', ''), 1200)}
 
 Budget Analysis:
-{state.get('budget_results', '')}
+{_truncate(state.get('budget_results', ''), 1200)}
 
 Draft Itinerary:
-{state.get('itinerary', '')}
+{_truncate(state.get('itinerary', ''), 2000)}
 
 Format the final answer beautifully using these sections:
 1. Trip Summary
@@ -627,18 +728,14 @@ Important:
 - Incorporate the human feedback when revision was requested.
 """
 
-    response = llm.invoke(
-        [
-            SystemMessage(
-                content="You are a professional AI travel booking assistant."
-            ),
-            HumanMessage(content=final_prompt),
-        ]
+    final_content = _llm_text(
+        "You are a professional AI travel booking assistant.",
+        final_prompt,
     )
 
     return {
-        "final_response": response.content,
-        "messages": [response],
+        "final_response": final_content,
+        "messages": [AIMessage(content=final_content)],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
@@ -695,6 +792,7 @@ graph.add_node("hotel_agent", hotel_agent)
 graph.add_node("weather_agent", weather_agent)
 graph.add_node("budget_agent", budget_agent)
 graph.add_node("itinerary_agent", itinerary_agent)
+graph.add_node("verifier_agent", verifier_agent)
 graph.add_node("human_approval", human_approval_agent)
 graph.add_node("final_agent", final_agent)
 
@@ -714,7 +812,15 @@ graph.add_conditional_edges(
     "budget_agent", route_after_agent("budget_agent"), ROUTE_MAP
 )
 
-graph.add_edge("itinerary_agent", "human_approval")
+graph.add_edge("itinerary_agent", "verifier_agent")
+graph.add_conditional_edges(
+    "verifier_agent",
+    route_after_verifier,
+    {
+        "itinerary_agent": "itinerary_agent",
+        "human_approval": "human_approval",
+    }
+)
 graph.add_edge("human_approval", "final_agent")
 graph.add_edge("final_agent", END)
 graph.add_edge("guardrail_blocked", END)
@@ -784,6 +890,11 @@ def _serialize_result(
         "supervisor_reasoning": result.get("supervisor_reasoning", ""),
         "guardrail_allowed": result.get("guardrail_allowed", True),
         "guardrail_reason": result.get("guardrail_reason", ""),
+        "verification_report": result.get("verification_report", {}),
+        "verification_score": result.get("verification_score", 100.0),
+        "verification_violations": result.get("verification_violations", []),
+        "verification_passed": result.get("verification_passed", True),
+        "verification_retry_count": result.get("verification_retry_count", 0),
         "approved": result.get("approved"),
         "human_feedback": result.get("human_feedback", ""),
         "llm_calls": result.get("llm_calls", 0),
@@ -811,6 +922,11 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
             "weather_results": "",
             "budget_results": "",
             "itinerary": "",
+            "verification_report": {},
+            "verification_score": 100.0,
+            "verification_violations": [],
+            "verification_passed": True,
+            "verification_retry_count": 0,
             "approval_request": "",
             "approved": False,
             "human_feedback": "",

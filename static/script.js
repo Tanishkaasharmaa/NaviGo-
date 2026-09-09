@@ -7,7 +7,8 @@ const AGENT_LABELS = {
   hotel_agent: "🏨 Hotel Agent",
   weather_agent: "🌦️ Weather Agent",
   budget_agent: "💰 Budget Agent",
-  itinerary_agent: "🗓️ Itinerary Agent"
+  itinerary_agent: "🗓️ Itinerary Agent",
+  verifier_agent: "🛡️ Verifier Agent"
 };
 
 function setPrompt(text) {
@@ -156,6 +157,7 @@ async function sendMessage() {
     localStorage.setItem("travel_thread_id", currentThreadId);
 
     showWorkflow(data);
+    showVerificationScorecard(data);
 
     if (data.requires_approval) {
       showResult(data.itinerary || data.answer, data.thread_id, true);
@@ -168,6 +170,72 @@ async function sendMessage() {
     showError(error.message);
   } finally {
     setLoading(false, "draft");
+  }
+}
+
+function showVerificationScorecard(data) {
+  const section = document.getElementById("verificationSection");
+  if (!section) return;
+
+  const score = data.verification_score !== undefined ? data.verification_score : 100;
+  const violations = data.verification_violations || [];
+  const breakdown = (data.verification_report && data.verification_report.checks_breakdown) || {};
+
+  const scoreValue = document.getElementById("scoreValue");
+  const scoreStatus = document.getElementById("scoreStatus");
+  const scoreBadge = document.getElementById("scoreBadge");
+  const scoreMeterFill = document.getElementById("scoreMeterFill");
+
+  scoreValue.textContent = `${score}%`;
+  scoreMeterFill.style.width = `${Math.max(5, score)}%`;
+
+  scoreBadge.className = "score-badge";
+  if (score >= 90) {
+    scoreBadge.classList.add("score-passed");
+    scoreStatus.textContent = "100% Verified";
+  } else if (score >= 70) {
+    scoreBadge.classList.add("score-warning");
+    scoreStatus.textContent = "Minor Warnings";
+  } else {
+    scoreBadge.classList.add("score-failed");
+    scoreStatus.textContent = "Violations Found";
+  }
+
+  updateCheckItem("checkBudget", "iconBudget", breakdown.budget ? breakdown.budget.passed : true);
+  updateCheckItem("checkTravelTime", "iconTravelTime", breakdown.travel_time ? breakdown.travel_time.passed : true);
+  updateCheckItem("checkOpeningHours", "iconOpeningHours", breakdown.opening_hours ? breakdown.opening_hours.passed : true);
+  updateCheckItem("checkHotelCheckin", "iconHotelCheckin", breakdown.hotel_checkin ? breakdown.hotel_checkin.passed : true);
+  updateCheckItem("checkDailyCeiling", "iconDailyCeiling", breakdown.daily_activity_ceiling ? breakdown.daily_activity_ceiling.passed : true);
+
+  const violationsContainer = document.getElementById("violationsContainer");
+  const violationsList = document.getElementById("violationsList");
+  violationsList.innerHTML = "";
+
+  if (violations.length > 0) {
+    violations.forEach(v => {
+      const li = document.createElement("li");
+      li.textContent = v;
+      violationsList.appendChild(li);
+    });
+    violationsContainer.classList.remove("hidden");
+  } else {
+    violationsContainer.classList.add("hidden");
+  }
+
+  section.classList.remove("hidden");
+}
+
+function updateCheckItem(elementId, iconId, isPassed) {
+  const item = document.getElementById(elementId);
+  const icon = document.getElementById(iconId);
+  if (!item || !icon) return;
+
+  if (isPassed) {
+    item.className = "check-item check-passed";
+    icon.textContent = "✓";
+  } else {
+    item.className = "check-item check-failed";
+    icon.textContent = "✕";
   }
 }
 
@@ -210,6 +278,7 @@ async function submitApproval(approved) {
     }
 
     showWorkflow(data);
+    showVerificationScorecard(data);
     hideApproval();
     showResult(data.answer, data.thread_id, false);
   } catch (error) {

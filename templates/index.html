@@ -78,6 +78,51 @@
       <div id="agentChips" class="agent-chips"></div>
     </section>
 
+    <section id="verificationSection" class="verification-section hidden">
+      <div class="verification-header">
+        <div>
+          <span class="eyebrow">Deterministic Verification Engine</span>
+          <h2>Constraint Satisfaction Score</h2>
+        </div>
+        <div id="scoreBadge" class="score-badge score-passed">
+          <span id="scoreValue">100%</span>
+          <span id="scoreStatus">Passed</span>
+        </div>
+      </div>
+
+      <div class="score-meter-container">
+        <div id="scoreMeterFill" class="score-meter-fill" style="width: 100%;"></div>
+      </div>
+
+      <div class="checks-grid" id="checksGrid">
+        <div class="check-item" id="checkBudget">
+          <span class="check-icon" id="iconBudget">✓</span>
+          <span class="check-name">Budget Limit</span>
+        </div>
+        <div class="check-item" id="checkTravelTime">
+          <span class="check-icon" id="iconTravelTime">✓</span>
+          <span class="check-name">OSRM Transit Gaps</span>
+        </div>
+        <div class="check-item" id="checkOpeningHours">
+          <span class="check-icon" id="iconOpeningHours">✓</span>
+          <span class="check-name">Opening Hours</span>
+        </div>
+        <div class="check-item" id="checkHotelCheckin">
+          <span class="check-icon" id="iconHotelCheckin">✓</span>
+          <span class="check-name">Hotel Check-in</span>
+        </div>
+        <div class="check-item" id="checkDailyCeiling">
+          <span class="check-icon" id="iconDailyCeiling">✓</span>
+          <span class="check-name">Daily Activity Hours</span>
+        </div>
+      </div>
+
+      <div id="violationsContainer" class="violations-container hidden">
+        <h4>Constraint Violations Identified:</h4>
+        <ul id="violationsList"></ul>
+      </div>
+    </section>
+
     <section id="resultSection" class="result-section hidden">
       <div class="result-header">
         <div>
