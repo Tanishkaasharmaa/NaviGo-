@@ -60,6 +60,10 @@ function showWorkflow(data) {
   const reasoning = document.getElementById("supervisorReasoning");
   const chips = document.getElementById("agentChips");
   const guardrailBadge = document.getElementById("guardrailBadge");
+  const verifierScoreBadge = document.getElementById("verifierScoreBadge");
+  const verificationBox = document.getElementById("verificationBox");
+  const verifierSummary = document.getElementById("verifierSummary");
+  const violationsList = document.getElementById("violationsList");
 
   reasoning.textContent = data.supervisor_reasoning || "Supervisor routing completed.";
   chips.innerHTML = "";
@@ -79,10 +83,44 @@ function showWorkflow(data) {
     guardrailBadge.classList.remove("blocked");
   }
 
+  // Verifier Constraint Satisfaction Score
+  const report = data.verification_report || {};
+  if (report && typeof report.score !== "undefined") {
+    const pct = Math.round(report.score * 100);
+    verifierScoreBadge.textContent = `Constraint Score: ${pct}%`;
+    verifierScoreBadge.className = "verifier-score-badge";
+    if (pct < 70) {
+      verifierScoreBadge.classList.add("danger");
+    } else if (pct < 100) {
+      verifierScoreBadge.classList.add("warning");
+    }
+    verifierScoreBadge.classList.remove("hidden");
+
+    // Violations List
+    const violations = report.violations || [];
+    if (violations.length > 0) {
+      verifierSummary.textContent = `Verified against hard travel constraints (${report.checks_run ? report.checks_run.join(', ') : 'budget, travel times, hotel dates'}). Detected ${violations.length} issue(s):`;
+      violationsList.innerHTML = "";
+      violations.forEach((v) => {
+        const li = document.createElement("li");
+        li.textContent = `⚠️ [${v.category}] ${v.description}`;
+        violationsList.appendChild(li);
+      });
+      verificationBox.classList.remove("hidden");
+    } else {
+      verifierSummary.textContent = `All deterministic hard constraints passed cleanly (Budget, OSRM Travel Times, Hotel Check-ins, Daily Activity Ceiling).`;
+      violationsList.innerHTML = "";
+      verificationBox.classList.remove("hidden");
+    }
+  } else {
+    verifierScoreBadge.classList.add("hidden");
+    verificationBox.classList.add("hidden");
+  }
+
   section.classList.remove("hidden");
 }
 
-function showResult(answer, threadId, isDraft = false) {
+function showResult(answer, threadId, isDraft = false, sources = []) {
   latestAnswerMarkdown = answer || "";
 
   const resultSection = document.getElementById("resultSection");
@@ -93,6 +131,35 @@ function showResult(answer, threadId, isDraft = false) {
   renderMarkdown(resultBox, latestAnswerMarkdown);
   threadInfo.textContent = `Thread ID: ${threadId}`;
   resultTitle.textContent = isDraft ? "Draft Travel Plan" : "Your Final AI Travel Plan";
+
+  // Sources & Provenance Section
+  const sourcesSection = document.getElementById("sourcesSection");
+  const sourcesList = document.getElementById("sourcesList");
+
+  if (sources && sources.length > 0) {
+    sourcesList.innerHTML = "";
+    sources.forEach((src) => {
+      const card = document.createElement("div");
+      card.className = "source-card";
+      const title = src.title || "External Reference";
+      const url = src.url || "#";
+      const fetched = src.fetched_at ? new Date(src.fetched_at).toLocaleTimeString() : "";
+      const agent = src.used_by || "system";
+
+      card.innerHTML = `
+        <div><a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a></div>
+        <div class="source-meta">
+          <span>Agent: ${agent}</span>
+          <span>${fetched}</span>
+        </div>
+      `;
+      sourcesList.appendChild(card);
+    });
+    sourcesSection.classList.remove("hidden");
+  } else {
+    sourcesSection.classList.add("hidden");
+  }
+
   resultSection.classList.remove("hidden");
 
   resultSection.scrollIntoView({
@@ -158,11 +225,11 @@ async function sendMessage() {
     showWorkflow(data);
 
     if (data.requires_approval) {
-      showResult(data.itinerary || data.answer, data.thread_id, true);
+      showResult(data.itinerary || data.answer, data.thread_id, true, data.sources || []);
       showApproval(data);
     } else {
       hideApproval();
-      showResult(data.answer, data.thread_id, false);
+      showResult(data.answer, data.thread_id, false, data.sources || []);
     }
   } catch (error) {
     showError(error.message);
@@ -211,7 +278,7 @@ async function submitApproval(approved) {
 
     showWorkflow(data);
     hideApproval();
-    showResult(data.answer, data.thread_id, false);
+    showResult(data.answer, data.thread_id, false, data.sources || []);
   } catch (error) {
     showError(error.message);
   } finally {

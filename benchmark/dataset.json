@@ -1,0 +1,92 @@
+[
+  {
+    "id": "query_01",
+    "query": "Plan a 3-day budget trip to Paris from London under $600 for 1 person.",
+    "destination": "Paris",
+    "origin": "London",
+    "duration": 3,
+    "budget": 600,
+    "people": 1
+  },
+  {
+    "id": "query_02",
+    "query": "Plan a 5-day trip to Tokyo from Dhaka under 200000 BDT for 2 people.",
+    "destination": "Tokyo",
+    "origin": "Dhaka",
+    "duration": 5,
+    "budget": 200000,
+    "people": 2
+  },
+  {
+    "id": "query_03",
+    "query": "Plan a 4-day trip to Rome from New York under $1200.",
+    "destination": "Rome",
+    "origin": "New York",
+    "duration": 4,
+    "budget": 1200,
+    "people": 1
+  },
+  {
+    "id": "query_04",
+    "query": "Plan a 3-day luxury trip to Dubai from Mumbai under 150000 INR.",
+    "destination": "Dubai",
+    "origin": "Mumbai",
+    "duration": 3,
+    "budget": 150000,
+    "people": 1
+  },
+  {
+    "id": "query_05",
+    "query": "Plan a 7-day trip to Bangkok from Dhaka under 80000 BDT.",
+    "destination": "Bangkok",
+    "origin": "Dhaka",
+    "duration": 7,
+    "budget": 80000,
+    "people": 1
+  },
+  {
+    "id": "query_06",
+    "query": "Plan a 3-day sightseeing trip to Barcelona from Paris under €500.",
+    "destination": "Barcelona",
+    "origin": "Paris",
+    "duration": 3,
+    "budget": 500,
+    "people": 1
+  },
+  {
+    "id": "query_07",
+    "query": "Plan a 4-day trip to Istanbul from Cairo under $700.",
+    "destination": "Istanbul",
+    "origin": "Cairo",
+    "duration": 4,
+    "budget": 700,
+    "people": 1
+  },
+  {
+    "id": "query_08",
+    "query": "Plan a 5-day cultural trip to Kyoto from Singapore under $1500.",
+    "destination": "Kyoto",
+    "origin": "Singapore",
+    "duration": 5,
+    "budget": 1500,
+    "people": 1
+  },
+  {
+    "id": "query_09",
+    "query": "Plan a 3-day trip to Amsterdam from Berlin under €400.",
+    "destination": "Amsterdam",
+    "origin": "Berlin",
+    "duration": 3,
+    "budget": 400,
+    "people": 1
+  },
+  {
+    "id": "query_10",
+    "query": "Plan a 4-day family trip to Singapore from Kuala Lumpur under $1000.",
+    "destination": "Singapore",
+    "origin": "Kuala Lumpur",
+    "duration": 4,
+    "budget": 1000,
+    "people": 2
+  }
+]

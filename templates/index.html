@@ -69,13 +69,23 @@
     <section id="workflowSection" class="workflow-section hidden">
       <div class="workflow-header">
         <div>
-          <span class="eyebrow">Supervisor Agent</span>
-          <h2>Execution Plan</h2>
+          <span class="eyebrow">Supervisor & Verifier Engine</span>
+          <h2>Execution & Verification Plan</h2>
         </div>
-        <span id="guardrailBadge" class="guardrail-badge">Guardrail passed</span>
+        <div class="header-badges">
+          <span id="guardrailBadge" class="guardrail-badge">Guardrail passed</span>
+          <span id="verifierScoreBadge" class="verifier-score-badge hidden">Score: 100%</span>
+        </div>
       </div>
       <p id="supervisorReasoning" class="supervisor-reasoning"></p>
       <div id="agentChips" class="agent-chips"></div>
+
+      <!-- Verification Violations Card -->
+      <div id="verificationBox" class="verification-box hidden">
+        <h3>🔍 Deterministic Constraint Verification</h3>
+        <p id="verifierSummary"></p>
+        <ul id="violationsList" class="violations-list"></ul>
+      </div>
     </section>
 
     <section id="resultSection" class="result-section hidden">
@@ -93,6 +103,12 @@
       <div id="pdfContent" class="pdf-content">
         <h1 class="pdf-title">AI Travel Plan</h1>
         <div id="resultBox" class="result-box"></div>
+      </div>
+
+      <!-- Sources & Provenance Section -->
+      <div id="sourcesSection" class="sources-section hidden">
+        <h3>🔗 Sources & Citation Provenance</h3>
+        <div id="sourcesList" class="sources-grid"></div>
       </div>
     </section>
 
